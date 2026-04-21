@@ -1,0 +1,49 @@
+# Build directories
+/build/
+/out/
+/bin/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+*.dir/
+
+# Visual Studio files
+/.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.vc.db
+*.VC.db
+*.opendb
+*.tlog
+*.recipe
+*.ilk
+*.idb
+*.ipch
+*.obj
+*.pdb
+
+# Executables and libraries generated locally
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Generated protobuf / gRPC sources
+/node.pb.cc
+/node.pb.h
+/node.grpc.pb.cc
+/node.grpc.pb.h
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+*.bak
+Thumbs.db
+.DS_Store

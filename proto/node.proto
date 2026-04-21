@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package cluster;
+
+service NodeService {
+  rpc SendMessage (MessageRequest) returns (MessageReply);
+}
+
+message MessageRequest {
+  string from = 1;
+  string message = 2;
+}
+
+message MessageReply {
+  string status = 1;
+}
