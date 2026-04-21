@@ -5,11 +5,14 @@
 #include <grpcpp/grpcpp.h>
 #include "node.grpc.pb.h"
 
-void sendMessage(std::string target, std::string message)
+std::shared_ptr<cluster::NodeService::Stub> createStub(const std::string &target)
 {
     auto channel = grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
-    auto stub = cluster::NodeService::NewStub(channel);
+    return cluster::NodeService::NewStub(channel);
+}
 
+void sendMessage(std::shared_ptr<cluster::NodeService::Stub> stub, std::string message)
+{
     cluster::MessageRequest request;
     request.set_from("Client");
     request.set_message(message);

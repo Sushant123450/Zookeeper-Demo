@@ -16,7 +16,30 @@ using grpc::Status;
 
 class NodeServiceImpl final : public cluster::NodeService::Service
 {
+private:
+    std::vector<std::string> peers;
+    std::string nodeId;
+
 public:
+    NodeServiceImpl(const std::vector<std::string> &p, const std::string &id)
+        : peers(p), nodeId(id) {}
+
+public:
+    void sendToPeer(const std::string &target, const std::string &msg)
+    {
+        auto channel = grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
+        auto stub = cluster::NodeService::NewStub(channel);
+
+        cluster::MessageRequest request;
+        request.set_from("peer");
+        request.set_message(msg);
+
+        cluster::MessageReply reply;
+        grpc::ClientContext context;
+
+        stub->SendMessage(&context, request, &reply);
+    }
+
     Status SendMessage(ServerContext *context,
                        const cluster::MessageRequest *request,
                        cluster::MessageReply *reply) override
@@ -42,7 +65,29 @@ public:
                 return Status::OK;
             }
 
+            // ✅ Peer request → only apply, no broadcast
+            if (request->from() == "peer")
+            {
+                kv.put(key, value);
+
+                std::cout << "[Node " << nodeId << "][REPL] from peer -> key: "
+                          << key << ", value: " << value << std::endl;
+
+                reply->set_status("REPLICATED");
+                return Status::OK;
+            }
             kv.put(key, value);
+
+            std::cout << "[Node " << nodeId << "][LOCAL PUT] key: "
+                      << key << ", value: " << value << std::endl;
+
+            for (const auto &peer : peers)
+            {
+                std::cout << "[Node " << nodeId << "][SEND] to " << peer
+                          << " -> " << msg << std::endl;
+                sendToPeer(peer, msg);
+            }
+
             reply->set_status("STORED");
         }
         else if (cmd == "GET")
@@ -68,15 +113,17 @@ public:
             reply->set_status("ERROR: UNKNOWN COMMAND");
         }
 
-        std::cout << "[REQ] " << request->from() << " -> " << msg << std::endl;
+        std::cout << "[Node " << nodeId << "][REQ] "
+                  << request->from() << " -> " << msg << std::endl;
         return Status::OK;
     }
 };
 
-void RunServer(const std::string &port)
+void RunServer(std::string port, std::vector<std::string> peers)
 {
     std::string address = "0.0.0.0:" + port;
-    NodeServiceImpl service;
+
+    NodeServiceImpl service(peers, port); // ✅ pass port as nodeId
 
     ServerBuilder builder;
     builder.AddListeningPort(address, grpc::InsecureServerCredentials());
@@ -89,18 +136,25 @@ void RunServer(const std::string &port)
         return;
     }
 
-    std::cout << "Node running on " << address << std::endl;
+    std::cout << "[Node " << port << "] running on " << address << std::endl;
 
     server->Wait();
 }
-
 int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        std::cout << "Usage: node <port>\n";
+        std::cout << "Usage: node <port> [peer1 peer2 ...]\n";
         return 1;
     }
-    RunServer(argv[1]);
+
+    std::vector<std::string> peers;
+
+    for (int i = 2; i < argc; i++)
+    {
+        peers.push_back(argv[i]);
+    }
+
+    RunServer(argv[1], peers);
     return 0;
 }
