@@ -14,15 +14,39 @@ using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
 
+enum class NodeState
+{
+    FOLLOWER,
+    CANDIDATE,
+    LEADER
+};
+
 class NodeServiceImpl final : public cluster::NodeService::Service
 {
 private:
     std::vector<std::string> peers;
     std::string nodeId;
+    NodeState state = NodeState::FOLLOWER;
+    int currentTerm = 0;
+    std::string votedFor = "";
 
 public:
     NodeServiceImpl(const std::vector<std::string> &p, const std::string &id)
-        : peers(p), nodeId(id) {}
+        : peers(p), nodeId(id)
+    {
+        if (nodeId == "5001")
+        {
+            state = NodeState::LEADER;
+        }
+        else
+        {
+            state = NodeState::FOLLOWER;
+        }
+
+        std::cout << "[Node " << nodeId << "] State: "
+                  << (state == NodeState::LEADER ? "LEADER" : "FOLLOWER")
+                  << std::endl;
+    }
 
 public:
     void sendToPeer(const std::string &target, const std::string &msg)
@@ -37,7 +61,19 @@ public:
         cluster::MessageReply reply;
         grpc::ClientContext context;
 
-        stub->SendMessage(&context, request, &reply);
+        context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
+
+        auto status = stub->SendMessage(&context, request, &reply);
+
+        if (!status.ok())
+        {
+            std::cout << "[Node " << nodeId << "][WARN] Failed to send to "
+                      << target << " (" << status.error_message() << ")\n";
+        }
+        else
+        {
+            std::cout << "[Node " << nodeId << "][ACK] from " << target << "\n";
+        }
     }
 
     Status SendMessage(ServerContext *context,
@@ -62,6 +98,13 @@ public:
             if (key.empty() || value.empty())
             {
                 reply->set_status("ERROR: PUT <key> <value>");
+                return Status::OK;
+            }
+
+            if (request->from() == "Client" && state != NodeState::LEADER)
+            {
+                std::cout << "[Node " << nodeId << "][REJECT] Not leader\n";
+                reply->set_status("ERROR: Not Leader. Leader is 5001");
                 return Status::OK;
             }
 
