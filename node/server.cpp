@@ -5,6 +5,9 @@
 #include <grpcpp/grpcpp.h>
 #include "node.grpc.pb.h"
 #include "kv_store.h"
+#include <thread>
+#include <chrono>
+#include <atomic>
 
 // Thread-safe global store
 KVStore kv;
@@ -29,26 +32,138 @@ private:
     NodeState state = NodeState::FOLLOWER;
     int currentTerm = 0;
     std::string votedFor = "";
+    std::atomic<bool> running{true};
+    std::atomic<long long> lastHeartbeatTime{0};
 
 public:
     NodeServiceImpl(const std::vector<std::string> &p, const std::string &id)
         : peers(p), nodeId(id)
     {
-        if (nodeId == "5001")
-        {
-            state = NodeState::LEADER;
-        }
-        else
-        {
-            state = NodeState::FOLLOWER;
-        }
+        lastHeartbeatTime = currentTimeMillis(); // 🔥 important
+
+        startElectionTimer();
 
         std::cout << "[Node " << nodeId << "] State: "
                   << (state == NodeState::LEADER ? "LEADER" : "FOLLOWER")
                   << std::endl;
     }
 
-public:
+    long long currentTimeMillis()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    }
+
+    void resetElectionTimer()
+    {
+        lastHeartbeatTime = currentTimeMillis();
+    }
+
+    void startHeartbeat()
+    {
+        std::thread([this]()
+                    {
+        while (running)
+        {
+            if (state == NodeState::LEADER)
+            {
+                for (const auto& peer : peers)
+                {
+                    sendHeartbeat(peer);
+                }
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        } })
+            .detach();
+    }
+
+    void sendHeartbeat(const std::string &target)
+    {
+        auto channel = grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
+        auto stub = cluster::NodeService::NewStub(channel);
+
+        cluster::MessageRequest request;
+        request.set_from(nodeId);
+        request.set_message("HEARTBEAT " + std::to_string(currentTerm));
+
+        cluster::MessageReply reply;
+        grpc::ClientContext context;
+
+        auto status = stub->SendMessage(&context, request, &reply);
+    }
+
+    bool requestVote(const std::string &target)
+    {
+        auto channel = grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
+        auto stub = cluster::NodeService::NewStub(channel);
+
+        cluster::MessageRequest request;
+        request.set_from(nodeId);
+        request.set_message("VOTE " + std::to_string(currentTerm));
+
+        cluster::MessageReply reply;
+        grpc::ClientContext context;
+
+        auto status = stub->SendMessage(&context, request, &reply);
+
+        return status.ok() && reply.status() == "VOTE_GRANTED";
+    }
+
+    void startElection()
+    {
+        state = NodeState::CANDIDATE;
+        currentTerm++;
+        votedFor = nodeId;
+
+        int votes = 1; // vote for self
+
+        std::cout << "[Node " << nodeId << "] Starting election for term "
+                  << currentTerm << std::endl;
+
+        for (const auto &peer : peers)
+        {
+            if (requestVote(peer))
+            {
+                votes++;
+            }
+        }
+
+        if (votes > (peers.size() + 1) / 2)
+        {
+            state = NodeState::LEADER;
+            std::cout << "[Node " << nodeId << "] Became LEADER\n";
+
+            startHeartbeat();
+        }
+        else
+        {
+            state = NodeState::FOLLOWER;
+            std::cout << "[Node " << nodeId << "] Election lost\n";
+        }
+    }
+
+    void startElectionTimer()
+    {
+        std::thread([this]()
+                    {
+        while (running)
+        {
+            int timeout = 1500 + (rand() % 1500);
+            std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
+
+            long long now = currentTimeMillis();
+
+if (state == NodeState::FOLLOWER &&
+    now - lastHeartbeatTime > timeout)
+{
+    startElection();
+}
+        } })
+            .detach();
+    }
+
     void sendToPeer(const std::string &target, const std::string &msg)
     {
         auto channel = grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
@@ -76,9 +191,7 @@ public:
         }
     }
 
-    Status SendMessage(ServerContext *context,
-                       const cluster::MessageRequest *request,
-                       cluster::MessageReply *reply) override
+    Status SendMessage(ServerContext *context, const cluster::MessageRequest *request, cluster::MessageReply *reply) override
     {
 
         std::string msg = request->message();
@@ -86,6 +199,67 @@ public:
         std::string cmd, key;
 
         iss >> cmd >> key;
+
+        if (msg.rfind("HEARTBEAT", 0) == 0)
+        {
+            std::istringstream hbStream(msg);
+            std::string cmd;
+            int term;
+
+            hbStream >> cmd >> term;
+
+            if (term >= currentTerm)
+            {
+                currentTerm = term;
+                state = NodeState::FOLLOWER;
+                votedFor = "";
+
+                std::cout << "[Node " << nodeId << "] Received heartbeat\n";
+
+                resetElectionTimer(); // 🔥 important
+            }
+
+            reply->set_status("OK");
+            return Status::OK;
+        }
+
+        if (msg.rfind("VOTE", 0) == 0)
+        {
+            std::istringstream voteStream(msg);
+            std::string cmd;
+            int term;
+            voteStream >> cmd >> term;
+
+            std::string candidateId = request->from();
+
+            if (term < currentTerm)
+            {
+                reply->set_status("VOTE_DENIED");
+                return Status::OK;
+            }
+
+            if (term > currentTerm)
+            {
+                currentTerm = term;
+                votedFor = "";
+                state = NodeState::FOLLOWER;
+            }
+
+            if (votedFor.empty() || votedFor == candidateId)
+            {
+                votedFor = candidateId;
+                reply->set_status("VOTE_GRANTED");
+
+                std::cout << "[Node " << nodeId << "] Voted for "
+                          << candidateId << std::endl;
+            }
+            else
+            {
+                reply->set_status("VOTE_DENIED");
+            }
+
+            return Status::OK;
+        }
 
         if (cmd == "PUT")
         {

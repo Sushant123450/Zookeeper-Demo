@@ -55,6 +55,8 @@ int main(int argc, char **argv)
     std::cout << "Connected to " << target << "\n";
     std::cout << "Type 'help' for commands\n";
 
+    auto stub = createStub(target);
+
     while (true)
     {
         std::cout << "zk> ";
@@ -95,7 +97,7 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            sendMessage(target, input);
+            sendMessage(stub, input);
         }
         else if (cmd == "GET")
         {
@@ -107,7 +109,7 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            sendMessage(target, input);
+            sendMessage(stub, input);
         }
         else
         {
