@@ -3,34 +3,45 @@ setlocal enabledelayedexpansion
 
 cd C:\Users\susha\Desktop\ZKeeper\build\Debug
 
-set /p NUM_INSTANCES="How many nodes do you want to start? "
-
-set /A END_PORT=5000 + %NUM_INSTANCES%
+set /p NUM_INSTANCES="How many ZooKeeper servers do you want to start? "
+set /A ZK_END_PORT=2180 + %NUM_INSTANCES%
 
 echo.
-echo Starting %NUM_INSTANCES% Nodes...
+echo ==============================
+echo Starting ZooKeeper Ensemble
+echo ==============================
 
-REM Start nodes with peer list
-FOR /L %%P IN (5001,1,%END_PORT%) DO (
-    set "PEERS="
+for /L %%P in (2181,1,%ZK_END_PORT%) do (
+    set "ZK_PEERS="
 
-    FOR /L %%Q IN (5001,1,%END_PORT%) DO (
-        IF NOT %%P==%%Q (
-            set "PEERS=!PEERS! localhost:%%Q"
+    for /L %%Q in (2181,1,%ZK_END_PORT%) do (
+        if not %%P==%%Q (
+            set "ZK_PEERS=!ZK_PEERS! localhost:%%Q"
         )
     )
 
-    start "Node %%P" cmd /k "node.exe %%P !PEERS!"
+    echo Starting ZooKeeper %%P with peers: !ZK_PEERS!
+    start "ZooKeeper %%P" cmd /k "zookeeper.exe %%P !ZK_PEERS!"
 )
 
-echo Waiting for nodes to initialize...
-timeout /t 2 /nobreak > NUL
+echo.
+echo Waiting for ZooKeeper ensemble to initialize...
+timeout /t 3 /nobreak > NUL
 
-echo Starting Clients...
-
-REM Start clients
-FOR /L %%P IN (5001,1,%END_PORT%) DO (
-    start "Client %%P" cmd /k "client.exe localhost:%%P"
+set "BOOTSTRAP_ARGS="
+for /L %%P in (2181,1,%ZK_END_PORT%) do (
+    set "BOOTSTRAP_ARGS=!BOOTSTRAP_ARGS! localhost:%%P"
 )
 
-echo Cluster is running!
+echo.
+echo ==============================
+echo Starting Client
+echo ==============================
+echo Bootstrapping client with:%BOOTSTRAP_ARGS%
+
+start "Client" cmd /k "client.exe %BOOTSTRAP_ARGS%"
+
+echo.
+echo ==============================
+echo Ensemble is running!
+echo ==============================

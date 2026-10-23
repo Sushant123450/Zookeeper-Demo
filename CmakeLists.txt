@@ -46,8 +46,8 @@ target_link_libraries(zkeeper_proto
 )
 
 # ✅ Server
-add_executable(Node node/server.cpp)
-target_link_libraries(Node PRIVATE zkeeper_proto)
+add_executable(ZooKeeper node/zookeeper.cpp)
+target_link_libraries(ZooKeeper PRIVATE zkeeper_proto)
 
 # ✅ Client
 add_executable(Client node/client.cpp)

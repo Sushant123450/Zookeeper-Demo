@@ -2,6 +2,13 @@ syntax = "proto3";
 
 package cluster;
 
+service CoordinatorService {
+  rpc RegisterNode (NodeRegistrationRequest) returns (NodeRegistrationReply);
+  rpc GetLeader (LeaderQueryRequest) returns (LeaderQueryReply);
+  rpc Heartbeat (CoordinatorHeartbeatRequest) returns (CoordinatorHeartbeatReply);
+  rpc RequestVote (CoordinatorVoteRequest) returns (CoordinatorVoteReply);
+}
+
 service NodeService {
   rpc SendMessage (MessageRequest) returns (MessageReply);
 }
@@ -13,4 +20,43 @@ message MessageRequest {
 
 message MessageReply {
   string status = 1;
+}
+
+message NodeRegistrationRequest {
+  string node_id = 1;
+  string node_address = 2;
+}
+
+message NodeRegistrationReply {
+  string status = 1;
+  string leader_node_id = 2;
+  string leader_node_address = 3;
+}
+
+message LeaderQueryRequest {}
+
+message LeaderQueryReply {
+  string leader_node_id = 1;
+  string leader_node_address = 2;
+  string coordinator_state = 3;
+}
+
+message CoordinatorHeartbeatRequest {
+  string coordinator_id = 1;
+  int32 term = 2;
+}
+
+message CoordinatorHeartbeatReply {
+  string status = 1;
+  int32 term = 2;
+}
+
+message CoordinatorVoteRequest {
+  string candidate_id = 1;
+  int32 term = 2;
+}
+
+message CoordinatorVoteReply {
+  string status = 1;
+  int32 term = 2;
 }
